@@ -213,7 +213,7 @@ test.concurrent('pack should include bundled dependencies', (): Promise<void> =>
   });
 });
 
-test.skip('pack should include bundled workspace dependencies', (): Promise<void> => {
+test.concurrent('pack should include bundled workspace dependencies', (): Promise<void> => {
   const workspace = 'packages/a';
   return runPackWorkspace(workspace, [], {}, 'bundled-workspace-dependencies', async (config): Promise<void> => {
     const {cwd} = config;

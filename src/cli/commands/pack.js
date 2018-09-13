@@ -67,14 +67,17 @@ export async function packTarball(
   }
 
   // include bundleDependencies
-  let bundleDependenciesFiles = [];
+  let bundleDependenciesPackages = [];
   if (bundleDependencies) {
     for (const dependency of bundleDependencies) {
       const dependencyList = depsFor(dependency, config.cwd);
 
       for (const dep of dependencyList) {
         const filesForBundledDep = await fs.walk(dep.baseDir, null, new Set(FOLDERS_IGNORE));
-        bundleDependenciesFiles = bundleDependenciesFiles.concat(filesForBundledDep);
+        bundleDependenciesPackages = bundleDependenciesPackages.concat({
+          ...dep,
+          files: filesForBundledDep,
+        });
       }
     }
   }
@@ -116,13 +119,6 @@ export async function packTarball(
 
   // apply filters
   sortFilter(files, filters, keepFiles, possibleKeepFiles, ignoredFiles);
-
-  // add the files for the bundled dependencies to the set of files to keep
-  for (const file of bundleDependenciesFiles) {
-    const realPath = await fs.realpath(config.cwd);
-    keepFiles.add(path.relative(realPath, file.absolute));
-  }
-
   return packWithIgnoreAndHeaders(
     config.cwd,
     name => {
@@ -136,6 +132,26 @@ export async function packTarball(
       return !keepFiles.has(relative);
     },
     {mapHeader},
+    false,
+    async pack => {
+      // Add files from bundled dependencies, wherever they are
+      if (bundleDependenciesPackages.length > 0) {
+        await pack.entry({name: './node_modules', type: 'directory'});
+        for (const pkg of bundleDependenciesPackages) {
+          for (const file of pkg.files) {
+            const buffer = fs2.readFileSync(file.absolute);
+            await pack.entry(
+              {
+                name: `./node_modules/${pkg.name}/${file.relative}`,
+              },
+              buffer,
+            );
+          }
+        }
+      }
+      pack.finalize();
+      return pack;
+    },
   );
 }
 
@@ -143,6 +159,8 @@ export function packWithIgnoreAndHeaders(
   cwd: string,
   ignoreFunction?: string => boolean,
   {mapHeader}: {mapHeader?: Object => Object} = {},
+  finalize: boolean = true,
+  finish?: (pack: stream$Duplex) => Promise<stream$Duplex>,
 ): Promise<stream$Duplex> {
   return tar.pack(cwd, {
     ignore: ignoreFunction,
@@ -153,6 +171,8 @@ export function packWithIgnoreAndHeaders(
       delete header.gid;
       return mapHeader ? mapHeader(header) : header;
     },
+    finalize,
+    finish,
   });
 }
 
