@@ -3,6 +3,7 @@ import * as fs from '../../src/util/fs.js';
 import {run as pack} from '../../src/cli/commands/pack.js';
 import {ConsoleReporter} from '../../src/reporters/index.js';
 import {run as buildRun} from './_helpers.js';
+import Config from '../../src/config';
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
@@ -22,6 +23,26 @@ const runPack = buildRun.bind(
     return getStdout();
   },
 );
+
+function runPackWorkspace(
+  workspace: string,
+  args: Array<string>,
+  flags: Object,
+  name: string | {source?: string, cwd: string},
+  checkSteps: ?(config: Config, reporter: R, install: T, getStdout: () => string) => ?Promise<void>,
+): Promise<void> {
+  async function factory(args, flags, config, reporter, lockfile, getStdout): Promise<string> {
+    const {cwd} = config;
+    try {
+      config.cwd = path.join(cwd, workspace);
+      await pack(config, reporter, flags, args);
+      return getStdout();
+    } finally {
+      config.cwd = cwd;
+    }
+  }
+  return buildRun(ConsoleReporter, fixturesLoc, factory, args, flags, name, checkSteps);
+}
 
 export async function getFilesFromArchive(source, destination): Promise<Array<string>> {
   const unzip = new Promise((resolve, reject) => {
@@ -186,6 +207,21 @@ test.concurrent('pack should include bundled dependencies', (): Promise<void> =>
       path.join('node_modules', 'a'),
       path.join('node_modules', 'b'),
       path.join('node_modules', 'a', 'package.json'),
+      path.join('node_modules', 'b', 'package.json'),
+    ];
+    expect(files.sort()).toEqual(expected.sort());
+  });
+});
+
+test.skip('pack should include bundled workspace dependencies', (): Promise<void> => {
+  const workspace = 'packages/a';
+  return runPackWorkspace(workspace, [], {}, 'bundled-workspace-dependencies', async (config): Promise<void> => {
+    const {cwd} = config;
+    const files = await getFilesFromArchive(path.join(cwd, workspace, 'a-v1.0.0.tgz'), path.join(cwd, 'a-v1.0.0'));
+    const expected = [
+      'package.json',
+      'node_modules',
+      path.join('node_modules', 'b'),
       path.join('node_modules', 'b', 'package.json'),
     ];
     expect(files.sort()).toEqual(expected.sort());
